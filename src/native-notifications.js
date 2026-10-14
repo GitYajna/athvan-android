@@ -1,4 +1,6 @@
+
 const STORAGE_KEY = "athvan.reminders.v1";
+const ALARM_CHANNEL_ID = "athvan_alarm_v2";
 
 if (window.Capacitor?.isNativePlatform?.()) {
   startNativeNotifications().catch(error => {
@@ -11,6 +13,30 @@ async function startNativeNotifications() {
     await import("@capacitor/local-notifications");
 
   let syncQueue = Promise.resolve();
+
+  async function ensurePermissions() {
+    let permission = await LocalNotifications.checkPermissions();
+
+    if (permission.display !== "granted") {
+      permission = await LocalNotifications.requestPermissions();
+    }
+
+    if (permission.display !== "granted") {
+      console.warn("Athvan notification permission is not granted.");
+      return false;
+    }
+
+    const exact =
+      await LocalNotifications.checkExactNotificationSetting();
+
+    if (exact.exact_alarm !== "granted") {
+      console.warn("Athvan needs exact-alarm access.");
+      await LocalNotifications.changeExactNotificationSetting();
+      return false;
+    }
+
+    return true;
+  }
 
   function notificationId(value, usedIds) {
     let hash = 2166136261;
@@ -31,21 +57,20 @@ async function startNativeNotifications() {
     return id;
   }
 
-  async function hasPermission() {
-    let permission = await LocalNotifications.checkPermissions();
-
-    if (permission.display !== "granted") {
-      permission = await LocalNotifications.requestPermissions();
-    }
-
-    return permission.display === "granted";
-  }
-
   async function syncNotifications() {
-    if (!(await hasPermission())) {
-      console.warn("Athvan notification permission was not granted.");
-      return;
-    }
+    if (!(await ensurePermissions())) return;
+
+    await LocalNotifications.createChannel({
+      id: ALARM_CHANNEL_ID,
+      name: "Athvan Reminder Alarms",
+      description: "Audible and vibrating scheduled reminders",
+      importance: 5,
+      visibility: 1,
+      vibration: true,
+      lights: true,
+      lightColor: "#D8A35D",
+      sound: "athvan_alarm.wav"
+    });
 
     let reminders = [];
 
@@ -100,9 +125,12 @@ async function startNativeNotifications() {
         id: notificationId(String(reminder.id), usedIds),
         title: reminder.title,
         body: reminder.notes || "Your reminder is due now.",
+        channelId: ALARM_CHANNEL_ID,
         schedule: {
-          at: scheduledTime
+          at: scheduledTime,
+          allowWhileIdle: true
         },
+        autoCancel: true,
         extra: {
           reminderId: reminder.id
         }
@@ -113,6 +141,10 @@ async function startNativeNotifications() {
       const result = await LocalNotifications.schedule({
         notifications
       });
+
+      console.log(
+        `Athvan scheduled ${result.notifications.length} reminders.`
+      );
 
       if (result.warnings?.length) {
         console.warn("Athvan notification warnings:", result.warnings);
