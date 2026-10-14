@@ -47,6 +47,11 @@ jobs:
 
       - name: Sync Capacitor plugins
         run: npx cap sync android
+        
+      - name: Add custom alarm sound
+        run: |
+          mkdir -p android/app/src/main/res/raw
+          cp athvan_alarm.wav android/app/src/main/res/raw/athvan_alarm.wav
 
       - name: Enable scheduled exact alarms
         run: |
