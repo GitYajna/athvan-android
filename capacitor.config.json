@@ -1,5 +1,5 @@
 {
-  "appId": "com.gityajna.athvan",
-  "appName": "Athvan",
+  "appId": "com.gityajna.athvan.alarm",
+  "appName": "Athvan Alarm",
   "webDir": "dist"
 }
