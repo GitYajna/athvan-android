@@ -48,6 +48,12 @@ jobs:
 
       - name: Sync Capacitor plugins
         run: npx cap sync android
+      
+      - name: Install native alarm source files
+        run: |
+          TARGET="android/app/src/main/java/com/gityajna/athvan/alarm"
+          mkdir -p "$TARGET"
+          cp native-android/*.java "$TARGET/"
 
       - name: Prepare icon source filenames
         run: |
@@ -79,6 +85,80 @@ jobs:
                   1
               )
               path.write_text(manifest)
+          PY
+
+      - name: Register native alarm components
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("android/app/src/main/AndroidManifest.xml")
+          manifest = path.read_text()
+
+          permissions = [
+              "SCHEDULE_EXACT_ALARM",
+              "RECEIVE_BOOT_COMPLETED",
+              "USE_FULL_SCREEN_INTENT",
+              "FOREGROUND_SERVICE",
+              "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+              "WAKE_LOCK",
+              "VIBRATE"
+          ]
+
+          for name in permissions:
+              permission = (
+                  f'    <uses-permission android:name="android.permission.{name}" />'
+              )
+              if f'android.permission.{name}' not in manifest:
+                  manifest = manifest.replace(
+                      "<application",
+                      permission + "\n    <application",
+                      1
+                  )
+
+          components = """
+              <service
+                  android:name=".AthvanAlarmService"
+                  android:exported="false"
+                  android:foregroundServiceType="mediaPlayback" />
+
+              <receiver
+                  android:name=".AthvanAlarmReceiver"
+                  android:exported="false" />
+
+              <receiver
+                  android:name=".AthvanDismissReceiver"
+                  android:exported="false" />
+
+              <receiver
+                  android:name=".AthvanBootReceiver"
+                  android:enabled="true"
+                  android:exported="false">
+                  <intent-filter>
+                      <action android:name="android.intent.action.BOOT_COMPLETED" />
+                      <action android:name="android.intent.action.TIME_SET" />
+                      <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                      <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                  </intent-filter>
+              </receiver>
+
+              <activity
+                  android:name=".AthvanAlarmActivity"
+                  android:exported="false"
+                  android:launchMode="singleTop"
+                  android:showWhenLocked="true"
+                  android:turnScreenOn="true"
+                  android:excludeFromRecents="true" />
+          """
+
+          if ".AthvanAlarmService" not in manifest:
+              manifest = manifest.replace(
+                  "</application>",
+                  components + "\n    </application>",
+                  1
+              )
+
+          path.write_text(manifest)
           PY
 
       - name: Restore Android signing keystore
