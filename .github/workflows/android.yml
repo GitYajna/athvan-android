@@ -54,7 +54,7 @@ jobs:
           TARGET="android/app/src/main/java/com/gityajna/athvan/alarm"
           mkdir -p "$TARGET"
           cp native-android/*.java "$TARGET/"
-
+          
       - name: Prepare icon source filenames
         run: |
           cp assets/athvan-icon-only-1.png assets/icon-only.png
