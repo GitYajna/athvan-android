@@ -1,14 +1,16 @@
 
+import { registerPlugin } from "@capacitor/core";
+
 const STORAGE_KEY = "athvan.reminders.v1";
-const ALARM_CHANNEL_ID = "athvan_alarm_v2";
+const AthvanAlarm = registerPlugin("AthvanAlarm");
 
 if (window.Capacitor?.isNativePlatform?.()) {
-  startNativeNotifications().catch(error => {
-    console.error("Athvan notifications failed:", error);
+  startNativeAlarms().catch(error => {
+    console.error("Athvan alarm setup failed:", error);
   });
 }
 
-async function startNativeNotifications() {
+async function startNativeAlarms() {
   const { LocalNotifications } =
     await import("@capacitor/local-notifications");
 
@@ -22,55 +24,27 @@ async function startNativeNotifications() {
     }
 
     if (permission.display !== "granted") {
-      console.warn("Athvan notification permission is not granted.");
+      console.warn("Allow Athvan notifications in Android Settings.");
       return false;
     }
 
-    const exact =
-      await LocalNotifications.checkExactNotificationSetting();
+    let exact = await LocalNotifications.checkExactNotificationSetting();
 
     if (exact.exact_alarm !== "granted") {
-      console.warn("Athvan needs exact-alarm access.");
       await LocalNotifications.changeExactNotificationSetting();
+      exact = await LocalNotifications.checkExactNotificationSetting();
+    }
+
+    if (exact.exact_alarm !== "granted") {
+      console.warn("Enable Alarms and reminders for Athvan.");
       return false;
     }
 
     return true;
   }
 
-  function notificationId(value, usedIds) {
-    let hash = 2166136261;
-
-    for (let i = 0; i < value.length; i++) {
-      hash ^= value.charCodeAt(i);
-      hash = Math.imul(hash, 16777619);
-    }
-
-    let id = (hash >>> 0) & 0x7fffffff;
-    if (id === 0) id = 1;
-
-    while (usedIds.has(id)) {
-      id = id >= 2147483647 ? 1 : id + 1;
-    }
-
-    usedIds.add(id);
-    return id;
-  }
-
-  async function syncNotifications() {
+  async function syncAlarms() {
     if (!(await ensurePermissions())) return;
-
-    await LocalNotifications.createChannel({
-      id: ALARM_CHANNEL_ID,
-      name: "Athvan Reminder Alarms",
-      description: "Audible and vibrating scheduled reminders",
-      importance: 5,
-      visibility: 1,
-      vibration: true,
-      lights: true,
-      lightColor: "#D8A35D",
-      sound: "athvan_alarm.wav"
-    });
 
     let reminders = [];
 
@@ -84,80 +58,19 @@ async function startNativeNotifications() {
       reminders = [];
     }
 
-    const pending = await LocalNotifications.getPending();
+    const result = await AthvanAlarm.sync({ reminders });
 
-    if (pending.notifications.length) {
-      await LocalNotifications.cancel({
-        notifications: pending.notifications.map(item => ({
-          id: item.id
-        }))
-      });
-    }
-
-    const usedIds = new Set();
-    const notifications = [];
-    const now = Date.now();
-
-    for (const reminder of reminders) {
-      if (
-        !reminder ||
-        !reminder.id ||
-        !reminder.title ||
-        !reminder.date ||
-        !reminder.time ||
-        reminder.completed
-      ) {
-        continue;
-      }
-
-      const scheduledTime = new Date(
-        `${reminder.date}T${reminder.time}:00`
-      );
-
-      if (
-        Number.isNaN(scheduledTime.getTime()) ||
-        scheduledTime.getTime() <= now + 5000
-      ) {
-        continue;
-      }
-
-      notifications.push({
-        id: notificationId(String(reminder.id), usedIds),
-        title: reminder.title,
-        body: reminder.notes || "Your reminder is due now.",
-        channelId: ALARM_CHANNEL_ID,
-        schedule: {
-          at: scheduledTime,
-          allowWhileIdle: true
-        },
-        autoCancel: true,
-        extra: {
-          reminderId: reminder.id
-        }
-      });
-    }
-
-    if (notifications.length) {
-      const result = await LocalNotifications.schedule({
-        notifications
-      });
-
-      console.log(
-        `Athvan scheduled ${result.notifications.length} reminders.`
-      );
-
-      if (result.warnings?.length) {
-        console.warn("Athvan notification warnings:", result.warnings);
-      }
-    }
+    console.log(
+      `Athvan native alarms scheduled: ${result.scheduled}`
+    );
   }
 
   function queueSync() {
     syncQueue = syncQueue
       .catch(() => {})
-      .then(syncNotifications)
+      .then(syncAlarms)
       .catch(error => {
-        console.error("Could not update Athvan notifications:", error);
+        console.error("Could not sync Athvan alarms:", error);
       });
   }
 
@@ -173,7 +86,7 @@ async function startNativeNotifications() {
     return result;
   };
 
-  await syncNotifications();
+  await syncAlarms();
 
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) queueSync();
