@@ -49,6 +49,9 @@ jobs:
       - name: Sync Capacitor plugins
         run: npx cap sync android
 
+      - name: Generate Android launcher icons
+        run: npx capacitor-assets generate --android
+        
       - name: Add custom alarm sound
         run: |
           mkdir -p android/app/src/main/res/raw
