@@ -54,7 +54,7 @@ jobs:
           cp assets/athvan-icon-only-1.png assets/icon-only.png
           cp assets/athvan-icon-foreground-1.png assets/icon-foreground.png
           cp assets/athvan-icon-background.png assets/icon-background.png
-
+          
       - name: Generate Android launcher icons
         run: npx capacitor-assets generate --android
         
