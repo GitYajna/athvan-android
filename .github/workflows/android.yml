@@ -1,3 +1,4 @@
+
 name: Build Athvan Android APK
 
 on:
@@ -47,7 +48,7 @@ jobs:
 
       - name: Sync Capacitor plugins
         run: npx cap sync android
-        
+
       - name: Add custom alarm sound
         run: |
           mkdir -p android/app/src/main/res/raw
@@ -71,13 +72,89 @@ jobs:
               path.write_text(manifest)
           PY
 
-      - name: Build debug APK
-        working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+      - name: Restore Android signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/athvan-release.p12
+          chmod 600 android/app/athvan-release.p12
+          keytool -list \
+            -keystore android/app/athvan-release.p12 \
+            -storetype PKCS12 \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD"
 
-      - name: Upload APK
+      - name: Configure signed release build
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path("android/app/build.gradle")
+          text = path.read_text()
+
+          pattern = re.compile(
+              r'(?m)^([ \t]*)buildTypes[ \t]*\{[ \t]*\r?\n(?:[ \t]*\r?\n)*([ \t]*)release[ \t]*\{'
+          )
+          match = pattern.search(text)
+
+          if not match:
+              raise SystemExit("Could not find the release buildTypes block.")
+
+          indent, release_indent = match.groups()
+
+          replacement = (
+              f'{indent}signingConfigs {{\n'
+              f'{indent}    release {{\n'
+              f'{indent}        storeFile file("athvan-release.p12")\n'
+              f'{indent}        storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")\n'
+              f'{indent}        keyAlias "athvan"\n'
+              f'{indent}        keyPassword System.getenv("ANDROID_KEYSTORE_PASSWORD")\n'
+              f'{indent}        storeType "PKCS12"\n'
+              f'{indent}    }}\n'
+              f'{indent}}}\n\n'
+              f'{indent}buildTypes {{\n'
+              f'{release_indent}release {{\n'
+              f'{release_indent}    signingConfig signingConfigs.release'
+          )
+
+          text = text[:match.start()] + replacement + text[match.end():]
+
+          run_number = os.environ["GITHUB_RUN_NUMBER"]
+
+          text, count = re.subn(
+              r'(?m)^([ \t]*)versionCode[ \t]+1[ \t]*$',
+              lambda m: f'{m.group(1)}versionCode {run_number}',
+              text,
+              count=1
+          )
+
+          if count != 1:
+              raise SystemExit("Could not update Android versionCode.")
+
+          text, count = re.subn(
+              r'(?m)^([ \t]*)versionName[ \t]+"1\.0"[ \t]*$',
+              lambda m: f'{m.group(1)}versionName "1.0.{run_number}"',
+              text,
+              count=1
+          )
+
+          if count != 1:
+              raise SystemExit("Could not update Android versionName.")
+
+          path.write_text(text)
+          PY
+
+      - name: Build signed release APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: athvan-android-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: athvan-alarm-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
           retention-days: 7
